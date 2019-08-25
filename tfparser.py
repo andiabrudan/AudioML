@@ -1,6 +1,6 @@
 import argparse
 
-from Utils import _readable_object
+from Utils import _readable_object, _readable_directory, _readable_file
 
 
 class act(argparse.Action):
@@ -14,50 +14,6 @@ class act(argparse.Action):
 
 
 def tfparser():
-	# parser = argparse.ArgumentParser(description="Train a model or use it to predict labels for some data")
-	#
-	# origin = parser.add_argument_group(title="How the model should be treated.",
-	# 								   description="Whether an existing model should be loaded from disk, "
-	# 											   "or a new one be created and if the model should be "
-	# 											   "saved after processing or be discarded. The default "
-	# 											   "is to instantiate a new model and discard it after "
-	# 											   "use")
-	#
-	# origin.add_argument("-s", "--save", action="store",
-	# 					help="If the model is to be saved. If you want it to overwrite an existing model, "
-	# 						 "then do not specify any location. If this is a new model, then you need "
-	# 						 "to specify a location on the disk")
-	#
-	# load = origin.add_mutually_exclusive_group()
-	# disk = load.add_argument_group(title="If the model should be loaded from disk",
-	# 							   description="In this case, the specified file should have the .tfmodel extension")
-	# disk.add_argument("-l", "--load", action="store",
-	# 				  help="The model that should be loaded. This has to be a valid .tfmodel file")
-	#
-	# load.add_argument("-n", "--new", action="store_true",
-	# 				  help="If a new model should be created")
-	#
-	# input_group = parser.add_argument_group(title="Input files",
-	# 										description="The files that should be used for training/predicting. "
-	# 													"These can either be individual files or entire directories")
-	# input_group.add_argument("-i", "--input", action='append', type=_readable_object, required=True,
-	# 						 help="Files that should be processed. These can be audio files (of any extension) "
-	# 							  "in which case they will first be converted to a spectrogram, or they can be "
-	# 							  "images with extension .png in which case they will be used as is")
-	#
-	# train_predict = parser.add_mutually_exclusive_group(required=True)
-	# train_predict.add_argument("-t", "--train", action="store_true",
-	# 						   help="If the input files should be used for training")
-	# train_predict.add_argument("-p", "--predict", action="store_true",
-	# 						   help="If the input files should be predicted")
-	#
-	# parser.add_argument("-e", "--epochs", action="store", type=int, default=7,
-	# 					help="The number of epochs the model should run for. "
-	# 						 "Larger values are not necessarily better.")
-	#
-	# layers = parser.add_argument_group(title="The layers that make up the model",
-	# 								   description="")
-
 	### Main Parser
 	parser = argparse.ArgumentParser(description="Train a model or use it to predict labels for some data")
 	origin = parser.add_argument_group(title="How the model should be treated.",
@@ -66,20 +22,18 @@ def tfparser():
 												   "saved after processing or be discarded. The default "
 												   "is to instantiate a new model and discard it after "
 												   "use")
-	origin.add_argument("-s", "--save", action="store", nargs='?',
+	origin.add_argument("-s", "--save", action="store", type=_readable_directory,
 						help="If the model is to be saved. If you want it to overwrite an existing model, "
 							 "then do not specify any location. If this is a new model, then you need "
 							 "to specify a location on the disk")
-	load = origin.add_mutually_exclusive_group()
-	load.add_argument("-l", "--load", action="store", nargs=1,
-					  help="If the model should be loaded from disk. "
-						   "In this case, the specified file should be a valid .tfmodel file")
-
-	load.add_argument("-n", "--new", action="store_true",
-					  help="If a new model should be created")
+	origin.add_argument("-l", "--load", action="store", type=_readable_directory,
+						help="The location of the model you wish to use. "
+							 "This location should be a directory containing a .json file "
+							 "(with the model architecture) and an .hdf5 file (with the "
+							 "weights for the model)")
 	### End Main Parser
 
-	subparsers = parser.add_subparsers(title="Action", required=True,
+	subparsers = parser.add_subparsers(title="Action", required=True, dest="command",
 									   description="What action should be performed")
 
 	### Training subparser
@@ -95,6 +49,16 @@ def tfparser():
 					   help="The number of epochs the model should run for. "
 							"Larger values are not necessarily better.")
 	### End Training subparser
+
+	### Predicting subparser
+	predict = subparsers.add_parser("predict", help="Predict the label of one or more files using "
+													"an existing, already trained model")
+
+	predict.add_argument("-i", "--input", action="append", type=_readable_object, required=True,
+						 help="The input files you want to predict. "
+							  "They can be individual files or entire directories")
+
+	### End Predicting subparser
 	return parser
 
 

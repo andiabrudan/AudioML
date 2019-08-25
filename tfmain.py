@@ -1,82 +1,143 @@
-from typing import List
+from typing import List, Dict
+import numpy as np
 import tensorflow as tf
-from tensorflow.python.keras.layers \
-	import Dense, Flatten, Activation, \
-	Conv2D, Dropout, BatchNormalization, MaxPooling2D
-from Utils import isDirectory
+from Constants import SPEC_MAX_WIDTH, SPEC_MAX_HEIGHT, SPEC_NUM_CHANNELS
+from MyModel import MyModel
+from Utils import isDirectory, listDirectory, isFile, listAllSubDirectories, buildDirPath
 from tfparser import tfparser
-from Constants import SPEC_MAX_WIDTH, SPEC_MAX_HEIGHT
-from Dataset import FeatureDirectory, generateDataset, FeatureFile
+from Dataset import FeatureDirectory, generateDataset, FeatureFile, readImage
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES'] = "0"
-tf.compat.v1.enable_eager_execution()
-# tf.keras.backend.set_image_data_format('channels_last')
-
-def generateModel(output):
-	model = tf.keras.Sequential([
-		Conv2D(32, kernel_size=5, activation='relu', input_shape=(SPEC_MAX_WIDTH, SPEC_MAX_HEIGHT, 1)),
-		BatchNormalization(),
-
-		# Conv2D(48, kernel_size=4, activation='relu'),
-		# BatchNormalization(),
-		#
-		# Conv2D(120, kernel_size=3, activation='relu'),
-		# BatchNormalization(),
-
-		MaxPooling2D(pool_size=(2, 2)),
-		Dropout(0.25),
-
-		Flatten(),
-
-		Dense(64, activation='relu'),
-		BatchNormalization(),
-		Dropout(0.25),
-
-		Dense(64, activation='relu'),
-		BatchNormalization(),
-		Dropout(0.4),
-
-		Dense(output, activation='softmax')
-	])
-
-	# model = tf.keras.Sequential([
-	# 	Dense(1, input_shape=(SPEC_MAX_WIDTH, SPEC_MAX_HEIGHT,)),
-	# 	Flatten(),
-	# 	Activation('relu'),
-	# 	Dense(66, activation='relu'),
-	# 	Dense(output, activation='softmax'),
-	# ])
-
-	model.compile(optimizer='adadelta',
-				  loss='categorical_crossentropy',
-				  metrics=['accuracy'])
-	return model
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth = True
+# config.gpu_options.per_process_gpu_memory_fraction = 0.8
+tf.compat.v1.enable_eager_execution(config=config)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-if __name__ == '__main__':
-	args = tfparser().parse_args()
-	# extract command line arguments
-	epochs = args.epochs
-
-	# gather the files
+def gatherFiles(locations: List[Dict[str, str]]) -> List[FeatureFile]:
 	feature_files: List[FeatureFile] = list()
-	for item in args.input:
+
+	# Special case if only 1 single directory was provided which contains other directories
+	special = locations[0]["name"]
+	if len(locations) == 1 and isDirectory(special):
+		subdirectories = listAllSubDirectories(special)
+		for subdir in subdirectories:
+			feature_directory = FeatureDirectory(directory=buildDirPath(special, subdir),
+												 label=subdir)
+			files = feature_directory.getAllFiles()
+			feature_files += files
+		return feature_files
+
+	for item in locations:
 		if isDirectory(item["name"]):
 			files = FeatureDirectory(item["name"], item["label"]).getAllFiles()
 			feature_files += files
 		else:
 			feature_files.append(FeatureFile(item["name"], item["label"]))
+	return feature_files
 
-	# create the training and testing dataset
+
+def doTraining(locations: List[Dict[str, str]], model: MyModel, create_new: bool):
+	print("Gathering files... ", end='')
+	feature_files: List[FeatureFile] = gatherFiles(locations)
+	print("Done")
+
+	print("Generating dataset... ", end='')
 	x_train, x_test, y_train, y_test, encoder = generateDataset(feature_files)
+	print("Done")
 
-	model = generateModel(len(encoder.classes_))
-	model.summary()
-	model.fit(x_train,
-			  y_train,
-			  epochs=epochs,
-			  batch_size=200)
-	loss, accuracy = model.evaluate(x_test, y_test)
+	if create_new:
+		print(f"No model was loaded, creating a new one... ", end='')
+		model.createNew(len(encoder.classes_))
+		print("Done")
+
+	model.setEncoder(encoder)
+	model.getinstance().summary()
+	model.getinstance().fit(x_train,
+							y_train,
+							epochs=epochs,
+							batch_size=32,
+							verbose=1)
+	loss, accuracy = model.getinstance().evaluate(x_test, y_test)
 	print(f"Accuracy: {accuracy * 100:.5f}")
-	x = 1
+
+	if model.savingEnabled():
+		savelocation = model.getSaveDirectory()
+		print(f"Saving model to: \"{savelocation}\"... ", end='')
+		model.saveModelArchitecture()
+		model.saveModelWeights()
+		model.saveEncoder()
+		print("Done")
+
+
+def doPredicting(locations: List[str], model: MyModel):
+	if model is None:
+		print("Cannot predict on a new model. "
+			  "Train a model first and save it, then load it for prediction.")
+		return
+
+	# Gather all files
+	print("Gathering files... ", end='')
+	files = list()
+	for item in locations:
+		if isFile(item):
+			files.append(item)
+		elif isDirectory(item):
+			files += listDirectory(item)
+	print("Done")
+
+	# Read the files and convert them all into
+	# a numpy array of matrices (each matrix being a picture)
+	pics = list()
+	for f in files:
+		pics.append(readImage(f, (SPEC_MAX_WIDTH, SPEC_MAX_HEIGHT, SPEC_NUM_CHANNELS)))
+	pics = np.array(pics)
+
+	print("Predicting... ", end='')
+	# Do the prediction
+	predictions = model.getinstance().predict(pics)
+	predictions = model.decode(predictions)
+	print("Done\n")
+
+	# Print the predictions
+	for i in range(len(files)):
+		print(f"File \"{files[i]}\" was predicted to be: {predictions[i]}")
+
+
+if __name__ == '__main__':
+	args = tfparser().parse_args()
+	# extract command line arguments
+	save = args.save
+	load = args.load
+	command = args.command
+
+	# initialize values that we work with
+	model = MyModel()
+	create_new = True
+
+	if save:
+		print(f"Save location has been set to {save}")
+		model.setSaveDirectory(save)
+
+	if load:
+		print(f"Loading model from {load}... ", end='')
+		model.loadModelArchitecture(load)
+		model.loadModelWeights(load)
+		model.loadEncoder(load)
+		print("Done")
+		create_new = False
+	else:
+		create_new = True
+
+	if command == "train":
+		epochs = args.epochs
+		print("Beginning to train model")
+		doTraining(args.input, model, create_new)
+
+	elif command == "predict":
+		print("Beginning to predict model")
+		doPredicting(args.input, model)
+
+	else:
+		print(f"Unknown command \"{command}\"")

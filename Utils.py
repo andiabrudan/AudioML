@@ -5,14 +5,44 @@ import pathlib
 
 
 def _readable_object(path):
-	if not os.path.exists(path):
-		raise argparse.ArgumentError(None, f"Path \"{path}\" is not a valid file or directory")
+	problem = None
+	if os.path.exists(path):
+		if os.access(path, os.R_OK):
+			return path
 
-	if os.access(path, os.R_OK):
-		return path
+		problem = "not accessible"
+	problem = "not a valid location"
 
-	else:
-		raise argparse.ArgumentError(None, f"Object \"{path}\" exists, but is not accessible")
+	raise argparse.ArgumentError(None, f"Path \"{path}\" is {problem}")
+
+
+def _readable_directory(path):
+	problem = None
+	if os.path.exists(path):
+		if os.path.isdir(path):
+			if os.access(path, os.R_OK):
+				return path
+
+			problem = "not accessible"
+		problem = "not a valid directory"
+	problem = "not a valid location"
+
+	raise argparse.ArgumentError(None, f"Path \"{path}\" is {problem}")
+
+
+def _readable_file(path):
+	problem = None
+
+	if os.path.exists(path):
+		if os.path.isfile(path):
+			if os.access(path, os.R_OK):
+				return path
+
+			problem = "not accessible"
+		problem = "not a valid file"
+	problem = "not a valid location"
+
+	raise argparse.ArgumentError(None, f"Path \"{path}\" is {problem}")
 
 
 def isFile(path):
@@ -29,6 +59,10 @@ def listDirectory(path):
 		for f in files:
 			items.append(buildDirPath(root, f))
 	return items
+
+
+def listAllSubDirectories(path):
+	return next(os.walk(path))[1]
 
 
 def splitPath(filepath):
@@ -114,6 +148,11 @@ def getImageData(filepath):
 		return img.read()
 
 
+def isPicture(filepath):
+	_, extension = os.path.splitext(filepath)
+	return extension in [".png", ".jpg"]
+
+
 if __name__ == '__main__':
-	f = "D:/WAV files/fisiere/ABBA - unknown album - 00 - Dancing Queen/ABBA - unknown album - 00 - Dancing Queen_ch1_part01.png"
-	x = getImageData(f)
+	f = "D:/Chrome downloads▬/101_ObjectCategories/101_ObjectCategories"
+	x = listAllSubDirectories(f)
